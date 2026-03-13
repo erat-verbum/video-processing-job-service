@@ -1,4 +1,4 @@
-.PHONY: install lint check test test-unit test-int run
+.PHONY: install lint check test test-unit test-int run run-cli
 
 install:
 	uv venv --clear
@@ -23,6 +23,9 @@ test-int:
 
 run:
 	uv run uvicorn src.main:app --host 0.0.0.0 --port 8001
+
+run-cli:
+	uv run python -m src.cli run
 
 docker-build:
 	docker build -t ffmpeg-service .

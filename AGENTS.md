@@ -30,6 +30,7 @@ make run      # Start the service
 - `make test-unit` - Run unit tests only
 - `make test-int` - Run integration tests only
 - `make run` - Start the service with uvicorn
+- `make run-cli` - Run frame extraction via CLI (requires ffmpeg installed locally)
 
 ## API Endpoints
 
@@ -49,7 +50,8 @@ service-name/
 ├── src/
 │   ├── main.py     # FastAPI application
 │   ├── models.py   # Pydantic models and data structures
-│   └── job_runner.py  # Job execution logic
+│   ├── job_runner.py  # Job execution logic
+│   └── cli.py      # CLI for running without Docker
 └── test/
     ├── unit/       # Unit tests
     │   └── test__<name_of_file_being_tested>__<name_of_feature_being_tested>.py
@@ -68,6 +70,8 @@ service-name/
 - **models.py**: Pydantic models including `Job`, `JobStatus`, `StartJobRequest`, `ExtractFramesRequest`
 
 - **job_runner.py**: FFmpeg job execution. Extracts all frames from video to PNG files.
+
+- **cli.py**: Command-line interface for running frame extraction without Docker. Use `-i` for input file and `-o` for output directory.
 
 ## Service Components
 
@@ -205,6 +209,23 @@ curl http://localhost:8001/job
 
 # 4. Frames will be at data/output_frames/frame_0001.png, etc.
 ```
+
+## CLI
+
+Run frame extraction without Docker (requires ffmpeg installed locally):
+
+```bash
+make run-cli
+
+# Or directly:
+uv run python -m src.cli run -i video.mp4 -o output_frames
+```
+
+### CLI Options
+
+- `-i, --input` (required): Input video file path
+- `-o, --output` (required): Output directory for PNG frames
+- `-j, --job-id`: Job identifier (auto-generated if not provided)
 
 ## Dockerfile Requirements
 
