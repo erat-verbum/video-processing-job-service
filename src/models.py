@@ -37,6 +37,24 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class AudioTrack(BaseModel):
+    """Audio track extracted from source file."""
+
+    stream_index: int
+    codec: str
+    language: Optional[str] = None
+    filename: str
+
+
+class SubtitleTrack(BaseModel):
+    """Subtitle track extracted from source file."""
+
+    stream_index: int
+    codec: str
+    language: Optional[str] = None
+    filename: str
+
+
 class VideoMetadata(BaseModel):
     """Video metadata extracted from source file."""
 
@@ -45,6 +63,8 @@ class VideoMetadata(BaseModel):
     height: int
     codec: str
     duration_seconds: float
+    audio_tracks: list[AudioTrack] = []
+    subtitle_tracks: list[SubtitleTrack] = []
 
 
 class Job(BaseModel):

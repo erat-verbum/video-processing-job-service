@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from .models import JobType, VideoMetadata
+from .models import AudioTrack, JobType, SubtitleTrack, VideoMetadata
 
 DATA_DIR = "/app/data"
 
@@ -79,12 +79,42 @@ class JobRunner:
 
         output_pattern = str(output_path / "frame_%04d.png")
 
+        ffmpeg_args = ["ffmpeg", "-i", str(input_path), "-y"]
+
+        ffmpeg_args.extend(
+            [
+                "-map",
+                "0:v",
+                output_pattern,
+            ]
+        )
+
+        for track in metadata.audio_tracks:
+            ffmpeg_args.extend(
+                [
+                    "-map",
+                    f"0:{track.stream_index}",
+                    "-c:a",
+                    "copy",
+                    "-y",
+                    str(output_path / track.filename),
+                ]
+            )
+
+        for track in metadata.subtitle_tracks:
+            ffmpeg_args.extend(
+                [
+                    "-map",
+                    f"0:{track.stream_index}",
+                    "-c:s",
+                    "copy",
+                    "-y",
+                    str(output_path / track.filename),
+                ]
+            )
+
         process = await asyncio.create_subprocess_exec(
-            "ffmpeg",
-            "-i",
-            str(input_path),
-            "-y",
-            output_pattern,
+            *ffmpeg_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -118,6 +148,8 @@ class JobRunner:
             "output_dir": output_dir,
             "frame_count": frame_count,
             "metadata_file": f"{output_dir}/metadata.json",
+            "audio_track_count": len(metadata.audio_tracks),
+            "subtitle_track_count": len(metadata.subtitle_tracks),
         }
 
     async def _compose_frames(self, input_params: dict[str, Any]) -> dict[str, Any]:
@@ -162,18 +194,69 @@ class JobRunner:
 
         input_pattern = str(input_path / "frame_%04d.png")
 
-        process = await asyncio.create_subprocess_exec(
+        ffmpeg_args = [
             "ffmpeg",
             "-framerate",
             str(metadata.fps),
             "-i",
             input_pattern,
             "-y",
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            str(output_path),
+        ]
+
+        audio_extensions = [
+            "aac",
+            "mp3",
+            "m4a",
+            "ac3",
+            "eac3",
+            "flac",
+            "ogg",
+            "opus",
+            "wav",
+        ]
+        audio_files = []
+        for ext in audio_extensions:
+            audio_files.extend(sorted(input_path.glob(f"audio_*.{ext}")))
+        audio_files.sort()
+
+        subtitle_extensions = ["srt", "ass", "vtt"]
+        subtitle_files = []
+        for ext in subtitle_extensions:
+            subtitle_files.extend(sorted(input_path.glob(f"subtitle_*.{ext}")))
+        subtitle_files.sort()
+
+        audio_index = 0
+        for audio_file in audio_files:
+            ffmpeg_args.extend(["-i", str(audio_file)])
+
+        for subtitle_file in subtitle_files:
+            ffmpeg_args.extend(["-i", str(subtitle_file)])
+
+        ffmpeg_args.extend(
+            [
+                "-map",
+                "0:v",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        )
+
+        for _ in audio_files:
+            ffmpeg_args.extend(["-map", f"{audio_index + 1}:a", "-c:a", "copy"])
+            audio_index += 1
+
+        subtitle_input_offset = 1 + len(audio_files)
+        for i in range(len(subtitle_files)):
+            ffmpeg_args.extend(
+                ["-map", f"{subtitle_input_offset + i}:s", "-c:s", "copy"]
+            )
+
+        ffmpeg_args.append(str(output_path))
+
+        process = await asyncio.create_subprocess_exec(
+            *ffmpeg_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -202,6 +285,8 @@ class JobRunner:
             "output_file": output_file,
             "frame_count": len(frame_files),
             "fps": metadata.fps,
+            "audio_track_count": len(metadata.audio_tracks),
+            "subtitle_track_count": len(metadata.subtitle_tracks),
         }
 
     async def _extract_metadata(self, video_path: Path) -> VideoMetadata:
@@ -267,13 +352,168 @@ class JobRunner:
         codec = stream.get("codec_name", "unknown")
         duration = float(stream.get("duration", 0.0))
 
+        audio_tracks = await self._extract_audio_streams(video_path)
+        subtitle_tracks = await self._extract_subtitle_streams(video_path)
+
         return VideoMetadata(
             fps=fps,
             width=width,
             height=height,
             codec=codec,
             duration_seconds=duration,
+            audio_tracks=audio_tracks,
+            subtitle_tracks=subtitle_tracks,
         )
+
+    async def _extract_audio_streams(self, video_path: Path) -> list[AudioTrack]:
+        """
+        Extract audio stream information from a video file.
+
+        Args:
+            video_path: Path to the video file
+
+        Returns:
+            list[AudioTrack]: List of audio tracks
+        """
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "a",
+            "-show_entries",
+            "stream=index,codec_name,tags",
+            "-of",
+            "json",
+            str(video_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        try:
+            await process.wait()
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
+
+        if process.returncode != 0:
+            return []
+
+        if process.stdout is not None:
+            stdout = await process.stdout.read()
+            output = json.loads(stdout.decode())
+        else:
+            return []
+
+        audio_tracks = []
+        streams = output.get("streams", [])
+
+        codec_to_ext = {
+            "aac": "aac",
+            "mp3": "mp3",
+            "ac3": "ac3",
+            "eac3": "eac3",
+            "flac": "flac",
+            "alac": "m4a",
+            "opus": "opus",
+            "vorbis": "ogg",
+            "wav": "wav",
+            "pcm_s16le": "wav",
+        }
+
+        for stream in streams:
+            stream_index = int(stream.get("index", 0))
+            codec = stream.get("codec_name", "unknown")
+            tags = stream.get("tags", {})
+            language = tags.get("language")
+
+            ext = codec_to_ext.get(codec, "m4a")
+            filename = f"audio_{stream_index}.{ext}"
+
+            audio_tracks.append(
+                AudioTrack(
+                    stream_index=stream_index,
+                    codec=codec,
+                    language=language,
+                    filename=filename,
+                )
+            )
+
+        return audio_tracks
+
+    async def _extract_subtitle_streams(self, video_path: Path) -> list[SubtitleTrack]:
+        """
+        Extract subtitle stream information from a video file.
+
+        Args:
+            video_path: Path to the video file
+
+        Returns:
+            list[SubtitleTrack]: List of subtitle tracks
+        """
+        process = await asyncio.create_subprocess_exec(
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "s",
+            "-show_entries",
+            "stream=index,codec_name,tags",
+            "-of",
+            "json",
+            str(video_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        try:
+            await process.wait()
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
+
+        if process.returncode != 0:
+            return []
+
+        if process.stdout is not None:
+            stdout = await process.stdout.read()
+            output = json.loads(stdout.decode())
+        else:
+            return []
+
+        subtitle_tracks = []
+        streams = output.get("streams", [])
+
+        codec_to_ext = {
+            "subrip": "srt",
+            "srt": "srt",
+            "ass": "ass",
+            "ssa": "ass",
+            "webvtt": "vtt",
+            "vtt": "vtt",
+        }
+
+        for stream in streams:
+            stream_index = int(stream.get("index", 0))
+            codec = stream.get("codec_name", "unknown")
+            tags = stream.get("tags", {})
+            language = tags.get("language")
+
+            ext = codec_to_ext.get(codec, "srt")
+            filename = f"subtitle_{stream_index}.{ext}"
+
+            subtitle_tracks.append(
+                SubtitleTrack(
+                    stream_index=stream_index,
+                    codec=codec,
+                    language=language,
+                    filename=filename,
+                )
+            )
+
+        return subtitle_tracks
 
     def _save_metadata(self, output_dir: Path, metadata: VideoMetadata) -> None:
         """Save metadata to a JSON file in the output directory."""

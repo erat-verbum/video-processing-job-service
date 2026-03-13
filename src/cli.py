@@ -68,12 +68,42 @@ class CliJobRunner(JobRunner):
 
         console.print(f"[cyan]Starting extraction:[/cyan] {input_file} -> {output_dir}")
 
-        process = await asyncio.create_subprocess_exec(
+        ffmpeg_args = [
             "ffmpeg",
             "-i",
             str(input_path),
             "-y",
+            "-map",
+            "0:v",
             output_pattern,
+        ]
+
+        for track in metadata.audio_tracks:
+            ffmpeg_args.extend(
+                [
+                    "-map",
+                    f"0:{track.stream_index}",
+                    "-c:a",
+                    "copy",
+                    "-y",
+                    str(output_path / track.filename),
+                ]
+            )
+
+        for track in metadata.subtitle_tracks:
+            ffmpeg_args.extend(
+                [
+                    "-map",
+                    f"0:{track.stream_index}",
+                    "-c:s",
+                    "copy",
+                    "-y",
+                    str(output_path / track.filename),
+                ]
+            )
+
+        process = await asyncio.create_subprocess_exec(
+            *ffmpeg_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -112,6 +142,8 @@ class CliJobRunner(JobRunner):
             "output_dir": output_dir,
             "frame_count": frame_count,
             "metadata_file": f"{output_dir}/metadata.json",
+            "audio_track_count": len(metadata.audio_tracks),
+            "subtitle_track_count": len(metadata.subtitle_tracks),
         }
 
     async def _run_compose(self, input_params: dict[str, Any]) -> dict[str, Any]:
@@ -151,18 +183,69 @@ class CliJobRunner(JobRunner):
             f"[cyan]Starting composition:[/cyan] {input_dir} -> {output_file}"
         )
 
-        process = await asyncio.create_subprocess_exec(
+        ffmpeg_args = [
             "ffmpeg",
             "-framerate",
             str(metadata.fps),
             "-i",
             input_pattern,
             "-y",
-            "-c:v",
-            "libx264",
-            "-pix_fmt",
-            "yuv420p",
-            str(output_path),
+        ]
+
+        audio_extensions = [
+            "aac",
+            "mp3",
+            "m4a",
+            "ac3",
+            "eac3",
+            "flac",
+            "ogg",
+            "opus",
+            "wav",
+        ]
+        audio_files = []
+        for ext in audio_extensions:
+            audio_files.extend(sorted(input_path.glob(f"audio_*.{ext}")))
+        audio_files.sort()
+
+        subtitle_extensions = ["srt", "ass", "vtt"]
+        subtitle_files = []
+        for ext in subtitle_extensions:
+            subtitle_files.extend(sorted(input_path.glob(f"subtitle_*.{ext}")))
+        subtitle_files.sort()
+
+        audio_index = 0
+        for audio_file in audio_files:
+            ffmpeg_args.extend(["-i", str(audio_file)])
+
+        for subtitle_file in subtitle_files:
+            ffmpeg_args.extend(["-i", str(subtitle_file)])
+
+        ffmpeg_args.extend(
+            [
+                "-map",
+                "0:v",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+            ]
+        )
+
+        for _ in audio_files:
+            ffmpeg_args.extend(["-map", f"{audio_index + 1}:a", "-c:a", "copy"])
+            audio_index += 1
+
+        subtitle_input_offset = 1 + len(audio_files)
+        for i in range(len(subtitle_files)):
+            ffmpeg_args.extend(
+                ["-map", f"{subtitle_input_offset + i}:s", "-c:s", "copy"]
+            )
+
+        ffmpeg_args.append(str(output_path))
+
+        process = await asyncio.create_subprocess_exec(
+            *ffmpeg_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -196,6 +279,8 @@ class CliJobRunner(JobRunner):
             "output_file": output_file,
             "frame_count": len(frame_files),
             "fps": metadata.fps,
+            "audio_track_count": len(metadata.audio_tracks),
+            "subtitle_track_count": len(metadata.subtitle_tracks),
         }
 
 
