@@ -13,6 +13,8 @@ FastAPI service for extracting and composing video frames using FFmpeg.
 - Docker support
 - Unit and integration tests
 - Pre-commit hook (runs lint, type check, and unit tests on commit)
+- Audio track extraction and preservation
+- Subtitle track extraction and preservation
 
 ## Quick Start
 
@@ -67,9 +69,9 @@ service-name/
   - `GET /job` - Get current job status
   - `POST /job/cancel` - Cancel running job
 
-- **models.py**: Pydantic models including `Job`, `JobStatus`, `JobType`, `StartJobRequest`, `VideoMetadata`
+- **models.py**: Pydantic models including `Job`, `JobStatus`, `JobType`, `StartJobRequest`, `VideoMetadata`, `AudioTrack`, `SubtitleTrack`
 
-- **job_runner.py**: FFmpeg job execution. Extracts frames from video to PNG files or composes video from frames. Saves metadata for reconstitution.
+- **job_runner.py**: FFmpeg job execution. Extracts frames from video to PNG files or composes video from frames. Saves metadata for reconstitution. Preserves all audio and subtitle tracks.
 
 - **cli.py**: Command-line interface for running frame extraction or composition without Docker. Use `-t` for job type, `-i` for input file, `-o` for output directory.
 
@@ -110,13 +112,13 @@ service-name/
 The job requires a `job_type` parameter to specify the operation:
 
 ### Extract Job
-Extracts frames from a video to PNG images and saves metadata for reconstitution.
+Extracts frames from a video to PNG images and saves metadata for reconstitution. Also extracts all audio and subtitle tracks.
 - `job_type`: `"extract"` (required)
 - `input_file` (required): Path to input video file (e.g., `data/input.mp4`)
 - `output_dir` (required): Directory for output PNG frames (e.g., `data/output_frames`)
 
 ### Compose Job
-Creates a video from PNG frames using saved metadata.
+Creates a video from PNG frames using saved metadata. Preserves all extracted audio and subtitle tracks.
 - `job_type`: `"compose"` (required)
 - `input_dir` (required): Directory containing PNG frames and metadata.json (e.g., `data/output_frames`)
 - `output_file` (required): Path to output video file (e.g., `data/composed.mp4`)
@@ -171,7 +173,7 @@ All paths are relative to `/app/data/` in the container.
       "job_type": "extract" | "compose",
       "status": "running|completed|failed|cancelled",
       "progress": 0-100,
-      "result": { "completed": true, "frame_count": 300 },
+      "result": { "completed": true, "frame_count": 300, "audio_track_count": 2, "subtitle_track_count": 1 },
       "error": "string",
       "created_at": "ISO timestamp",
       "started_at": "ISO timestamp",
@@ -212,7 +214,9 @@ curl -X POST http://localhost:8001/job \
 curl http://localhost:8001/job
 
 # 4. Frames will be at data/output_frames/frame_0001.png, etc.
-# 5. Metadata saved at data/output_frames/metadata.json
+# 5. Audio tracks at data/output_frames/audio_0.aac, etc.
+# 6. Subtitle tracks at data/output_frames/subtitle_0.srt, etc.
+# 7. Metadata saved at data/output_frames/metadata.json
 
 # Example: Compose a video from frames
 # 1. Start compose job:
