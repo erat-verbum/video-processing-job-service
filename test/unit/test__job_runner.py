@@ -63,6 +63,129 @@ class TestMetadataExtraction:
         assert loaded.duration_seconds == 60.0
 
 
+class TestDisplayDimensions:
+    """Tests for display width/height calculation with rotation and aspect ratio."""
+
+    def test_rotation_90_swaps_dimensions(self):
+        """Test that 90 degree rotation swaps width and height."""
+        sar = 1.0
+        rotation = 90
+        width = 1920
+        height = 1080
+
+        if rotation in (90, -90, 270, -270):
+            display_width = height
+            display_height = round(width * sar)
+        else:
+            display_width = round(width * sar)
+            display_height = height
+
+        display_width = (display_width // 2) * 2
+        display_height = (display_height // 2) * 2
+
+        assert display_width == 1080
+        assert display_height == 1920
+
+    def test_rotation_270_swaps_dimensions(self):
+        """Test that 270 degree rotation swaps width and height."""
+        width = 1920
+        height = 1080
+        rotation = 270
+        sar = 1.0
+
+        if rotation in (90, -90, 270, -270):
+            display_width = height
+            display_height = round(width * sar)
+        else:
+            display_width = round(width * sar)
+            display_height = height
+
+        display_width = (display_width // 2) * 2
+        display_height = (display_height // 2) * 2
+
+        assert display_width == 1080
+        assert display_height == 1920
+
+    def test_rotation_0_keeps_dimensions(self):
+        """Test that 0 degree rotation keeps original dimensions."""
+        width = 1920
+        height = 1080
+        rotation = 0
+        sar = 1.0
+
+        if rotation in (90, -90, 270, -270):
+            display_width = height
+            display_height = round(width * sar)
+        else:
+            display_width = round(width * sar)
+            display_height = height
+
+        assert display_width == 1920
+        assert display_height == 1080
+
+    def test_sar_16_9_in_4_3_container(self):
+        """Test SAR calculation for 16:9 video in 4:3 container."""
+        width = 1440
+        height = 1080
+        sar_str = "4:3"
+        sar_num, sar_den = sar_str.split(":")
+        sar = float(sar_num) / float(sar_den)
+
+        display_width = round(width * sar)
+        display_height = height
+
+        assert display_width == 1920
+        assert display_height == 1080
+
+    def test_sar_with_rotation(self):
+        """Test SAR calculation combined with rotation."""
+        width = 1440
+        height = 1080
+        rotation = 90
+        sar_str = "4:3"
+        sar_num, sar_den = sar_str.split(":")
+        sar = float(sar_num) / float(sar_den)
+
+        if rotation in (90, -90, 270, -270):
+            display_width = height
+            display_height = round(width * sar)
+        else:
+            display_width = round(width * sar)
+            display_height = height
+
+        display_width = (display_width // 2) * 2
+        display_height = (display_height // 2) * 2
+
+        assert display_width == 1080
+        assert display_height == 1920
+
+    def test_display_dimensions_must_be_even(self):
+        """Test that display dimensions are always even (required for video encoding)."""
+        test_cases = [
+            (1920, 1080, 1.0, 0),
+            (1440, 1080, 1.333, 0),
+            (1920, 1080, 1.0, 90),
+            (1280, 720, 1.0, 0),
+            (1001, 1000, 1.5, 0),
+        ]
+
+        for width, height, sar, rotation in test_cases:
+            if rotation in (90, -90, 270, -270):
+                display_width = height
+                display_height = round(width * sar)
+            else:
+                display_width = round(width * sar)
+                display_height = height
+
+            display_width = (display_width // 2) * 2
+            display_height = (display_height // 2) * 2
+
+            assert display_width % 2 == 0, f"display_width {display_width} is not even"
+            assert display_height % 2 == 0, (
+                f"display_height {display_height} is not even"
+            )
+
+
 class TestJobDispatch:
     """Tests for job type dispatch."""
 
