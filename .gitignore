@@ -42,4 +42,5 @@ data/
 !data/.gitkeep
 !test/data/
 !data/test/
+!data/test/input/
 data/test/output/
