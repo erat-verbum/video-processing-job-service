@@ -14,10 +14,10 @@ FastAPI service for extracting and composing video frames using FFmpeg.
 - Extracts all subtitle tracks to separate files
   - Preserves original format: `srt`, `ass`, `vtt`
 - Output:
-  - `PNG` frames
-  - `metadata.json`
-  - `audio_*.{ext}` files
-  - `subtitle_*.{ext}` files
+  - `frame/` directory with `PNG` frames
+  - `audio/` directory with audio tracks
+  - `subtitle/` directory with subtitle tracks
+  - `metadata.json` at root
 
 ### Compose Job
 - Creates a video from `PNG` frames using saved metadata
@@ -227,9 +227,9 @@ curl -X POST http://localhost:8001/job \
 # 3. Check status
 curl http://localhost:8001/job
 
-# 4. Frames will be at `data/output_frames/frame_0001.png`, etc.
-# 5. Audio tracks at `data/output_frames/audio_0.aac`, etc.
-# 6. Subtitle tracks at `data/output_frames/subtitle_0.srt`, etc.
+# 4. Frames will be at `data/output_frames/frame/frame_0001.png`, etc.
+# 5. Audio tracks at `data/output_frames/audio/audio_0.aac`, etc.
+# 6. Subtitle tracks at `data/output_frames/subtitle/subtitle_0.srt`, etc.
 # 7. Metadata saved at `data/output_frames/metadata.json`
 
 # Example: Compose a video from frames

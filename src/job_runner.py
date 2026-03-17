@@ -74,10 +74,17 @@ class JobRunner:
 
         output_path.mkdir(parents=True, exist_ok=True)
 
+        frame_dir = output_path / "frame"
+        audio_dir = output_path / "audio"
+        subtitle_dir = output_path / "subtitle"
+        frame_dir.mkdir(exist_ok=True)
+        audio_dir.mkdir(exist_ok=True)
+        subtitle_dir.mkdir(exist_ok=True)
+
         metadata = await self._extract_metadata(input_path)
         self._save_metadata(output_path, metadata)
 
-        output_pattern = str(output_path / "frame_%04d.png")
+        output_pattern = str(frame_dir / "frame_%04d.png")
 
         ffmpeg_args = ["ffmpeg", "-i", str(input_path), "-y"]
 
@@ -139,7 +146,8 @@ class JobRunner:
             raise RuntimeError(f"FFmpeg failed: {error_msg}")
 
         frame_files = sorted(
-            output_path.glob("frame_*.png"), key=lambda p: int(p.stem.split("_")[1])
+            output_path.glob("frame/frame_*.png"),
+            key=lambda p: int(p.stem.split("_")[1]),
         )
         frame_count = len(frame_files)
 
@@ -187,14 +195,15 @@ class JobRunner:
         metadata = self._load_metadata(metadata_path)
 
         frame_files = sorted(
-            input_path.glob("frame_*.png"), key=lambda p: int(p.stem.split("_")[1])
+            input_path.glob("frame/frame_*.png"),
+            key=lambda p: int(p.stem.split("_")[1]),
         )
         if not frame_files:
-            raise ValueError(f"No frame files found in: {input_path}")
+            raise ValueError(f"No frame files found in: {input_path / 'frame'}")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        input_pattern = str(input_path / "frame_%04d.png")
+        input_pattern = str(input_path / "frame" / "frame_%04d.png")
 
         ffmpeg_args = [
             "ffmpeg",
@@ -218,13 +227,13 @@ class JobRunner:
         ]
         audio_files = []
         for ext in audio_extensions:
-            audio_files.extend(sorted(input_path.glob(f"audio_*.{ext}")))
+            audio_files.extend(sorted(input_path.glob(f"audio/audio_*.{ext}")))
         audio_files.sort()
 
         subtitle_extensions = ["srt", "ass", "vtt"]
         subtitle_files = []
         for ext in subtitle_extensions:
-            subtitle_files.extend(sorted(input_path.glob(f"subtitle_*.{ext}")))
+            subtitle_files.extend(sorted(input_path.glob(f"subtitle/subtitle_*.{ext}")))
         subtitle_files.sort()
 
         audio_index = 0
@@ -452,7 +461,7 @@ class JobRunner:
             language = tags.get("language")
 
             ext = codec_to_ext.get(codec, "m4a")
-            filename = f"audio_{stream_index}.{ext}"
+            filename = f"audio/audio_{stream_index}.{ext}"
 
             audio_tracks.append(
                 AudioTrack(
@@ -525,7 +534,7 @@ class JobRunner:
             language = tags.get("language")
 
             ext = codec_to_ext.get(codec, "srt")
-            filename = f"subtitle_{stream_index}.{ext}"
+            filename = f"subtitle/subtitle_{stream_index}.{ext}"
 
             subtitle_tracks.append(
                 SubtitleTrack(
