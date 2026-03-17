@@ -4,8 +4,8 @@ FROM python:3.11-slim
 # Install uv
 RUN pip install uv
 
-# Install ffmpeg
-RUN apt-get update && apt-get install -y ffmpeg
+# Install ffmpeg and mkvtoolnix
+RUN apt-get update && apt-get install -y ffmpeg mkvtoolnix
 
 # Set the working directory in the container
 WORKDIR /app

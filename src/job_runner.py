@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -145,20 +146,39 @@ class JobRunner:
                 ]
             )
 
-        supported_subtitle_codecs = {"subrip", "srt", "ass", "ssa", "webvtt", "vtt"}
+        copy_subtitle_codecs = {"subrip", "srt", "ass", "ssa", "webvtt", "vtt"}
+        bitmap_subtitle_codecs = {
+            "dvbsub",
+            "dvd_subtitle",
+            "hdmv_pgs_subtitle",
+            "vobsub",
+        }
         for track in metadata.subtitle_tracks:
-            if track.codec not in supported_subtitle_codecs:
-                continue
-            ffmpeg_args.extend(
-                [
-                    "-map",
-                    f"0:{track.stream_index}",
-                    "-c:s",
-                    "copy",
-                    "-y",
-                    str(output_path / track.filename),
-                ]
-            )
+            if track.codec in copy_subtitle_codecs:
+                ffmpeg_args.extend(
+                    [
+                        "-map",
+                        f"0:{track.stream_index}",
+                        "-c:s",
+                        "copy",
+                        "-y",
+                        str(output_path / track.filename),
+                    ]
+                )
+            elif track.codec in bitmap_subtitle_codecs:
+                pass
+            else:
+                output_filename = track.filename.rsplit(".", 1)[0] + ".srt"
+                ffmpeg_args.extend(
+                    [
+                        "-map",
+                        f"0:{track.stream_index}",
+                        "-c:s",
+                        "srt",
+                        "-y",
+                        str(output_path / output_filename),
+                    ]
+                )
 
         process = await asyncio.create_subprocess_exec(
             *ffmpeg_args,
@@ -189,6 +209,8 @@ class JobRunner:
         )
         frame_count = len(frame_files)
 
+        self._extract_bitmap_subtitles(input_path, output_path, metadata)
+
         return {
             "completed": True,
             "job_type": "extract",
@@ -199,6 +221,41 @@ class JobRunner:
             "audio_track_count": len(metadata.audio_tracks),
             "subtitle_track_count": len(metadata.subtitle_tracks),
         }
+
+    def _extract_bitmap_subtitles(
+        self,
+        input_path: Path,
+        output_path: Path,
+        metadata: VideoMetadata,
+    ) -> None:
+        """Extract bitmap-based subtitles using mkvextract."""
+        bitmap_subtitle_codecs = {
+            "dvbsub",
+            "dvd_subtitle",
+            "hdmv_pgs_subtitle",
+            "vobsub",
+        }
+        subtitle_dir = output_path / "subtitle"
+        subtitle_dir.mkdir(exist_ok=True)
+        for track in metadata.subtitle_tracks:
+            if track.codec not in bitmap_subtitle_codecs:
+                continue
+            try:
+                output_file = subtitle_dir / f"subtitle_{track.stream_index}.sub"
+                result = subprocess.run(
+                    [
+                        "mkvextract",
+                        "tracks",
+                        str(input_path),
+                        f"{track.stream_index}:{output_file}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    pass
+            except FileNotFoundError:
+                break
 
     async def _compose_frames(self, input_params: dict[str, Any]) -> dict[str, Any]:
         """
@@ -568,6 +625,21 @@ class JobRunner:
             "ssa": "ass",
             "webvtt": "vtt",
             "vtt": "vtt",
+            "dvbsub": "sup",
+            "dvd_subtitle": "sub",
+            "vobsub": "sub",
+            "hdmv_pgs_subtitle": "sup",
+            "hdmv_text_subtitle": "srt",
+            "jacosub": "srt",
+            "microdvd": "srt",
+            "mpl2": "srt",
+            "pjs": "srt",
+            "realtext": "srt",
+            "sami": "srt",
+            "stl": "srt",
+            "subviewer": "srt",
+            "subviewer1": "srt",
+            "vplayer": "srt",
         }
 
         for stream in streams:

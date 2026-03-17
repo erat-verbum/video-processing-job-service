@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 import signal
 import sys
 from pathlib import Path
@@ -135,17 +136,39 @@ class CliJobRunner(JobRunner):
                 ]
             )
 
+        copy_subtitle_codecs = {"subrip", "srt", "ass", "ssa", "webvtt", "vtt"}
+        bitmap_subtitle_codecs = {
+            "dvbsub",
+            "dvd_subtitle",
+            "hdmv_pgs_subtitle",
+            "vobsub",
+        }
         for track in metadata.subtitle_tracks:
-            ffmpeg_args.extend(
-                [
-                    "-map",
-                    f"0:{track.stream_index}",
-                    "-c:s",
-                    "copy",
-                    "-y",
-                    str(output_path / track.filename),
-                ]
-            )
+            if track.codec in copy_subtitle_codecs:
+                ffmpeg_args.extend(
+                    [
+                        "-map",
+                        f"0:{track.stream_index}",
+                        "-c:s",
+                        "copy",
+                        "-y",
+                        str(output_path / track.filename),
+                    ]
+                )
+            elif track.codec in bitmap_subtitle_codecs:
+                pass
+            else:
+                output_filename = track.filename.rsplit(".", 1)[0] + ".srt"
+                ffmpeg_args.extend(
+                    [
+                        "-map",
+                        f"0:{track.stream_index}",
+                        "-c:s",
+                        "srt",
+                        "-y",
+                        str(output_path / output_filename),
+                    ]
+                )
 
         process = await asyncio.create_subprocess_exec(
             *ffmpeg_args,
@@ -178,6 +201,10 @@ class CliJobRunner(JobRunner):
         )
         frame_count = len(frame_files)
 
+        self._extract_bitmap_subtitles(
+            input_path, output_path, metadata.subtitle_tracks
+        )
+
         self._update_progress(100)
         console.print("[cyan]Progress:[/cyan] 100% - Complete!")
 
@@ -191,6 +218,53 @@ class CliJobRunner(JobRunner):
             "audio_track_count": len(metadata.audio_tracks),
             "subtitle_track_count": len(metadata.subtitle_tracks),
         }
+
+    def _extract_bitmap_subtitles(
+        self,
+        input_path: Path,
+        output_path: Path,
+        metadata: Any,
+    ) -> None:
+        """Extract bitmap-based subtitles using mkvextract."""
+        bitmap_subtitle_codecs = {
+            "dvbsub",
+            "dvd_subtitle",
+            "hdmv_pgs_subtitle",
+            "vobsub",
+        }
+        subtitle_dir = output_path / "subtitle"
+        subtitle_dir.mkdir(exist_ok=True)
+        subtitle_tracks = (
+            metadata.subtitle_tracks
+            if hasattr(metadata, "subtitle_tracks")
+            else metadata
+        )
+        for track in subtitle_tracks:
+            if track.codec not in bitmap_subtitle_codecs:
+                continue
+            try:
+                output_file = subtitle_dir / f"subtitle_{track.stream_index}.sub"
+                result = subprocess.run(
+                    [
+                        "mkvextract",
+                        "tracks",
+                        str(input_path),
+                        f"{track.stream_index}:{output_file}",
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    console.print(
+                        f"[yellow]Warning:[/yellow] Failed to extract subtitle "
+                        f"track {track.stream_index}: {result.stderr}"
+                    )
+            except FileNotFoundError:
+                console.print(
+                    "[yellow]Warning:[/yellow] mkvextract not found, "
+                    "skipping bitmap subtitle extraction"
+                )
+                break
 
     async def _run_compose(self, input_params: dict[str, Any]) -> dict[str, Any]:
         """Run the frame composition job with progress output."""
